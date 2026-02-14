@@ -1,0 +1,54 @@
+# Build outputs
+build/
+build-output/
+*.so
+*.bundle
+*.dll
+*.dylib
+*.lib
+*.exp
+*.pdb
+*.obj
+*.o
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.VC.db
+*.VC.opendb
+x64/
+Win32/
+Debug/
+Release/
+ipch/
+
+# Xcode  
+*.xcworkspace
+xcuserdata/
+*.xcarchive
+DerivedData/
+
+# macOS
+.DS_Store
+._*
+
+# Archives
+*.zip
+*.rbz
+*.tar.gz
+
+# Logs
+*.log
+
+# Temp files
+*.tmp
+*~
+
+# Keep the distributed binaries in libraries/stage/
+!RubyExtension/MSPhysics/libraries/stage/**/*.so
+!RubyExtension/MSPhysics/libraries/stage/**/*.bundle
+!RubyExtension/MSPhysics/libraries/stage/**/*.dll
+!RubyExtension/MSPhysics/libraries/stage/**/*.dylib
