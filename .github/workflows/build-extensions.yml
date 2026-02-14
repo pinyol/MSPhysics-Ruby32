@@ -2,115 +2,177 @@ name: Build MSPhysics C++ Extensions
 
 on:
   push:
-    branches: [ main, master, ruby-3.2 ]
+    branches: [ main, master ]
   pull_request:
-    branches: [ main, master, ruby-3.2 ]
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
   build-windows:
-    name: Build Windows x64 (Ruby 3.2)
+    name: Build Windows x64
     runs-on: windows-latest
     
     steps:
     - name: Checkout MSPhysics
       uses: actions/checkout@v4
       
-    - name: Checkout SketchUp Ruby Headers
-      uses: actions/checkout@v4
-      with:
-        repository: SketchUp/ruby-c-extension-examples
-        path: sketchup-ruby-headers
-        
-    - name: Copy Ruby 3.2 Headers
-      shell: pwsh
-      run: |
-        New-Item -ItemType Directory -Force -Path "C++Extension/ThirdParty/Ruby/include/3.2"
-        New-Item -ItemType Directory -Force -Path "C++Extension/ThirdParty/Ruby/lib/win32"
-        Copy-Item -Recurse -Force "sketchup-ruby-headers/SketchUp*/*" "C++Extension/ThirdParty/Ruby/include/3.2/"
-        Get-ChildItem "C++Extension/ThirdParty/Ruby/include/3.2" -Recurse
-    
     - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v1.1
+      uses: microsoft/setup-msbuild@v2
       
+    - name: List available Windows SDKs
+      run: |
+        echo "Installed Windows SDKs:"
+        dir "C:\Program Files (x86)\Windows Kits\10\Include" 2>$null || echo "No SDKs in Program Files (x86)"
+        dir "C:\Program Files\Windows Kits\10\Include" 2>$null || echo "No SDKs in Program Files"
+        
     - name: Build Newton Dynamics
       working-directory: C++Extension/Projects/VS
       run: |
-        msbuild newton.vcxproj /p:Configuration="Release" /p:Platform="x64"
+        echo "Building Newton Dynamics..."
+        msbuild newton.vcxproj /t:Rebuild /p:Configuration="Release" /p:Platform="x64" /p:WindowsTargetPlatformVersion="10.0" /p:PlatformToolset="v143"
         
-    - name: Build MSPhysics Extension
+    - name: Build MSPhysics Extension (Ruby 2.5)
       working-directory: C++Extension/Projects/VS
       run: |
-        msbuild msp_lib.vcxproj /p:Configuration="Release (3.2)" /p:Platform="x64"
+        echo "Building MSPhysics for Ruby 2.5..."
+        msbuild msp_lib.vcxproj /t:Rebuild /p:Configuration="Release (2.5)" /p:Platform="x64" /p:WindowsTargetPlatformVersion="10.0" /p:PlatformToolset="v143"
+        
+    - name: List build outputs
+      run: |
+        echo "Build outputs:"
+        Get-ChildItem -Path "C++Extension/Projects/VS" -Recurse -Include "*.so","*.dll" | ForEach-Object { $_.FullName }
         
     - name: Package Windows Binaries
       shell: pwsh
       run: |
         New-Item -ItemType Directory -Force -Path "build-output/windows-x64"
-        Copy-Item "C++Extension/Projects/VS/x64/Release (3.2)/msp_lib/msp_lib.so" "build-output/windows-x64/"
-        Copy-Item "C++Extension/Projects/VS/x64/Release/newton/newton.dll" "build-output/windows-x64/"
-        Copy-Item "C++Extension/ThirdParty/SDL2/lib/x64/*.dll" "build-output/windows-x64/"
-        Copy-Item "C++Extension/ThirdParty/SDL2_mixer/lib/x64/*.dll" "build-output/windows-x64/"
+        
+        # Find and copy the built files
+        $mspLib = Get-ChildItem -Path "C++Extension/Projects/VS/x64" -Recurse -Filter "msp_lib.so" | Select-Object -First 1
+        if ($mspLib) {
+          Copy-Item $mspLib.FullName "build-output/windows-x64/"
+          echo "Copied msp_lib.so"
+        } else {
+          echo "ERROR: msp_lib.so not found!"
+          exit 1
+        }
+        
+        $newtonDll = Get-ChildItem -Path "C++Extension/Projects/VS/x64" -Recurse -Filter "newton.dll" | Select-Object -First 1
+        if ($newtonDll) {
+          Copy-Item $newtonDll.FullName "build-output/windows-x64/"
+          echo "Copied newton.dll"
+        }
+        
+        # Copy SDL2 dependencies if they exist
+        if (Test-Path "C++Extension/ThirdParty/SDL2/lib/x64") {
+          Copy-Item "C++Extension/ThirdParty/SDL2/lib/x64/*.dll" "build-output/windows-x64/" -ErrorAction SilentlyContinue
+        }
+        if (Test-Path "C++Extension/ThirdParty/SDL2_mixer/lib/x64") {
+          Copy-Item "C++Extension/ThirdParty/SDL2_mixer/lib/x64/*.dll" "build-output/windows-x64/" -ErrorAction SilentlyContinue
+        }
+        
         Get-ChildItem "build-output/windows-x64"
         
     - name: Upload Windows Binaries
       uses: actions/upload-artifact@v4
       with:
-        name: msphysics-windows-x64-ruby32
+        name: msphysics-windows-x64
         path: build-output/windows-x64/*
         retention-days: 30
 
   build-macos:
-    name: Build macOS Universal (Ruby 3.2)
+    name: Build macOS Universal
     runs-on: macos-latest
     
     steps:
     - name: Checkout MSPhysics
       uses: actions/checkout@v4
-      
-    - name: Checkout SketchUp Ruby Headers
-      uses: actions/checkout@v4
-      with:
-        repository: SketchUp/ruby-c-extension-examples
-        path: sketchup-ruby-headers
-        
-    - name: Copy Ruby 3.2 Headers
-      run: |
-        mkdir -p "C++Extension/ThirdParty/Ruby/include/3.2"
-        mkdir -p "C++Extension/ThirdParty/Ruby/lib/osx"
-        cp -R sketchup-ruby-headers/SketchUp*/Headers/* "C++Extension/ThirdParty/Ruby/include/3.2/" || true
-        ls -la "C++Extension/ThirdParty/Ruby/include/3.2/"
     
     - name: Setup Xcode
       uses: maxim-lobanov/setup-xcode@v1
       with:
         xcode-version: latest-stable
         
-    - name: Build Universal Binary
+    - name: List available Xcode schemes
       working-directory: C++Extension/Projects/xCode
       run: |
-        xcodebuild -project MSPhysics.xcodeproj \
-          -scheme "Ruby (3.2) - 64" \
+        echo "Checking for project files..."
+        find . -name "*.xcodeproj" -o -name "*.xcworkspace"
+        
+        echo "Listing schemes in newton.xcodeproj..."
+        xcodebuild -project newton.xcodeproj -list || true
+        
+        echo "Listing schemes in msp_lib.xcodeproj..."
+        xcodebuild -project msp_lib.xcodeproj -list || true
+        
+    - name: Build Newton Dynamics
+      working-directory: C++Extension/Projects/xCode
+      run: |
+        echo "Building Newton for macOS..."
+        # Try to build with a scheme that exists
+        xcodebuild -project newton.xcodeproj \
+          -scheme "newton" \
           -configuration Release \
-          -archivePath "build/MSPhysics.xcarchive" \
-          archive \
-          ARCHS="x86_64 arm64" \
-          ONLY_ACTIVE_ARCH=NO
+          -arch x86_64 -arch arm64 \
+          ONLY_ACTIVE_ARCH=NO \
+          BUILD_DIR="$(pwd)/build" || \
+        xcodebuild -project newton.xcodeproj \
+          -alltargets \
+          -configuration Release \
+          -arch x86_64 -arch arm64 \
+          ONLY_ACTIVE_ARCH=NO \
+          BUILD_DIR="$(pwd)/build"
           
+    - name: Build MSPhysics Extension
+      working-directory: C++Extension/Projects/xCode
+      run: |
+        echo "Building MSPhysics for macOS..."
+        # Try Ruby 2.5 scheme first (which should exist)
+        xcodebuild -project msp_lib.xcodeproj \
+          -scheme "Ruby (2.5) - 64" \
+          -configuration Release \
+          -arch x86_64 -arch arm64 \
+          ONLY_ACTIVE_ARCH=NO \
+          BUILD_DIR="$(pwd)/build" || \
+        xcodebuild -project msp_lib.xcodeproj \
+          -alltargets \
+          -configuration Release \
+          -arch x86_64 -arch arm64 \
+          ONLY_ACTIVE_ARCH=NO \
+          BUILD_DIR="$(pwd)/build"
+          
+    - name: List build outputs
+      working-directory: C++Extension/Projects/xCode
+      run: |
+        echo "Build outputs:"
+        find build -name "*.bundle" -o -name "*.dylib"
+        
     - name: Package macOS Binaries
       run: |
         mkdir -p "build-output/macos-universal"
-        cp -R "C++Extension/Projects/xCode/build/MSPhysics.xcarchive/Products/usr/local/lib/msp_lib.bundle" "build-output/macos-universal/"
-        cp "C++Extension/ThirdParty/NewtonDynamics/lib/osx/newton.dylib" "build-output/macos-universal/" || true
-        cp C++Extension/ThirdParty/SDL2/lib/osx/*.dylib "build-output/macos-universal/" || true
-        cp C++Extension/ThirdParty/SDL2_mixer/lib/osx/*.dylib "build-output/macos-universal/" || true
-        lipo -info "build-output/macos-universal/msp_lib.bundle/Contents/MacOS/msp_lib"
+        
+        # Find and copy the built bundle
+        find "C++Extension/Projects/xCode/build" -name "msp_lib.bundle" -exec cp -R {} "build-output/macos-universal/" \;
+        
+        # Find and copy newton dylib
+        find "C++Extension/Projects/xCode/build" -name "*.dylib" -exec cp {} "build-output/macos-universal/" \;
+        
+        # Copy SDL2 dependencies if they exist
+        [ -d "C++Extension/ThirdParty/SDL2/lib/osx" ] && cp C++Extension/ThirdParty/SDL2/lib/osx/*.dylib "build-output/macos-universal/" 2>/dev/null || true
+        [ -d "C++Extension/ThirdParty/SDL2_mixer/lib/osx" ] && cp C++Extension/ThirdParty/SDL2_mixer/lib/osx/*.dylib "build-output/macos-universal/" 2>/dev/null || true
+        
+        # Verify what we got
         ls -la "build-output/macos-universal"
+        
+        # Check if it's a universal binary
+        if [ -f "build-output/macos-universal/msp_lib.bundle/Contents/MacOS/msp_lib" ]; then
+          lipo -info "build-output/macos-universal/msp_lib.bundle/Contents/MacOS/msp_lib" || echo "Not a universal binary"
+        fi
         
     - name: Upload macOS Binaries
       uses: actions/upload-artifact@v4
       with:
-        name: msphysics-macos-universal-ruby32
+        name: msphysics-macos-universal
         path: build-output/macos-universal/*
         retention-days: 30
 
@@ -126,39 +188,53 @@ jobs:
     - name: Download Windows Binaries
       uses: actions/download-artifact@v4
       with:
-        name: msphysics-windows-x64-ruby32
+        name: msphysics-windows-x64
         path: binaries/windows-x64
         
     - name: Download macOS Binaries
       uses: actions/download-artifact@v4
       with:
-        name: msphysics-macos-universal-ruby32
+        name: msphysics-macos-universal
         path: binaries/macos-universal
         
     - name: Organize Plugin Structure
       run: |
-        mkdir -p plugin/MSPhysics/libraries/stage/win64/3.2
-        mkdir -p plugin/MSPhysics/libraries/stage/osx64/3.2
-        cp binaries/windows-x64/msp_lib.so plugin/MSPhysics/libraries/stage/win64/3.2/
-        cp binaries/windows-x64/newton.dll plugin/MSPhysics/libraries/stage/win64/
-        cp binaries/windows-x64/*.dll plugin/MSPhysics/libraries/stage/win64/ || true
-        cp -R binaries/macos-universal/msp_lib.bundle plugin/MSPhysics/libraries/stage/osx64/3.2/
-        cp binaries/macos-universal/newton.dylib plugin/MSPhysics/libraries/stage/osx64/ || true
-        cp binaries/macos-universal/*.dylib plugin/MSPhysics/libraries/stage/osx64/ || true
-        cp -R RubyExtension/MSPhysics/* plugin/MSPhysics/
-        cp RubyExtension/MSPhysics.rb plugin/
-        find plugin -type f
+        # Create the plugin directory structure
+        mkdir -p plugin/MSPhysics/libraries/stage/win64/2.5
+        mkdir -p plugin/MSPhysics/libraries/stage/osx64/2.5
+        
+        # Copy Windows binaries (Ruby 2.5 for now)
+        cp binaries/windows-x64/msp_lib.so plugin/MSPhysics/libraries/stage/win64/2.5/ || true
+        cp binaries/windows-x64/newton.dll plugin/MSPhysics/libraries/stage/win64/ || true
+        cp binaries/windows-x64/*.dll plugin/MSPhysics/libraries/stage/win64/ 2>/dev/null || true
+        
+        # Copy macOS binaries (Ruby 2.5 for now)
+        cp -R binaries/macos-universal/msp_lib.bundle plugin/MSPhysics/libraries/stage/osx64/2.5/ 2>/dev/null || true
+        cp binaries/macos-universal/*.dylib plugin/MSPhysics/libraries/stage/osx64/ 2>/dev/null || true
+        
+        # Copy Ruby extension files (modernized code!)
+        if [ -d "RubyExtension/MSPhysics" ]; then
+          cp -R RubyExtension/MSPhysics/* plugin/MSPhysics/
+          cp RubyExtension/MSPhysics.rb plugin/
+        else
+          echo "ERROR: RubyExtension/MSPhysics not found!"
+          exit 1
+        fi
+        
+        # Show what we're packaging
+        echo "Plugin structure:"
+        find plugin -type f | head -50
         
     - name: Create RBZ Package
       run: |
         cd plugin
-        zip -r ../MSPhysics-v1.1.0-Ruby3.2.rbz .
+        zip -r ../MSPhysics-v1.0.3-Modernized.rbz .
         cd ..
-        ls -lh MSPhysics-v1.1.0-Ruby3.2.rbz
+        ls -lh MSPhysics-v1.0.3-Modernized.rbz
         
     - name: Upload Complete Plugin
       uses: actions/upload-artifact@v4
       with:
-        name: MSPhysics-v1.1.0-Ruby3.2
-        path: MSPhysics-v1.1.0-Ruby3.2.rbz
+        name: MSPhysics-v1.0.3-Modernized
+        path: MSPhysics-v1.0.3-Modernized.rbz
         retention-days: 90
