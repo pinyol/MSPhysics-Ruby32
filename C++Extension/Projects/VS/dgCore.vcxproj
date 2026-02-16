@@ -455,7 +455,7 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <WarningLevel>Level4</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_LIB;_WIN_64_VER;_CRT_SECURE_NO_WARNINGS;_NEWTON_USE_DOUBLE;%(PreprocessorDefinitions)</PrecompiledHeaderFile>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_LIB;_WIN_64_VER;_CRT_SECURE_NO_WARNINGS;_NEWTON_USE_DOUBLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PrecompiledHeaderFile>dgStdAfx.h</PrecompiledHeaderFile>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PrecompiledHeaderOutputFile>$(OutDir)$(TargetName).pch</PrecompiledHeaderOutputFile>
